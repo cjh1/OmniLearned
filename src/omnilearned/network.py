@@ -115,7 +115,6 @@ class PET2(nn.Module):
         return {"norm"}
 
     def forward(self, x, y, cond=None, pid=None, add_info=None):
-        B = x.shape[0]
         mask = x[:, :, 3:4] != 0
 
         y_pred, y_perturb, z_pred, v, x_body, z_body = (
@@ -261,7 +260,6 @@ class PET_generator(nn.Module):
         return {"norm"}
 
     def forward(self, x, mask, y):
-        B = x.shape[0]
         label_embed = self.pid_embed(y)
 
         # remove the classification tokens

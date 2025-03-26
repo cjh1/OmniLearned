@@ -474,8 +474,6 @@ class AttBlock(nn.Module):
         if self.skip_linear is not None and skip is not None:
             x = self.skip_linear(torch.cat([x, skip], dim=-1)) * mask
 
-        batch_size = x.shape[0]
-
         if mask is not None:
             attn_mask = mask.float() @ mask.float().transpose(-1, -2)
             attn_mask = ~(attn_mask.bool()).repeat_interleave(self.num_heads, dim=0)

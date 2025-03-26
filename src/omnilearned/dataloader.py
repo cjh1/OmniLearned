@@ -75,7 +75,7 @@ def get_url(dataset_name, dataset_type, base_url="https://portal.nersc.gov/cfs/m
 
     url = f"{base_url}/{dataset_name}/{dataset_type}/"
     try:
-        response = requests.head(url, allow_redirects=True, timeout=5)
+        requests.head(url, allow_redirects=True, timeout=5)
         return url
     except requests.RequestException:
         return None
