@@ -95,5 +95,6 @@ def dataloader(
     for tag in ["train", "test", "val"]:
         load_data(dataset, folder, dataset_type=tag, distributed=False)
 
+
 if __name__ == "__main__":
     app()
