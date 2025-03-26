@@ -3,7 +3,7 @@
 ## Install
 
 ```bash
-pip install .
+pip install omnilearned
 ```
 
 ## Data
