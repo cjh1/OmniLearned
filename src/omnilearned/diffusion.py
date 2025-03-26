@@ -1,7 +1,5 @@
 import torch
 import torch.nn as nn
-from typing import Dict, Tuple
-import torch.nn.functional as F
 import numpy as np
 
 class MPFourier(nn.Module):

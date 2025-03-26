@@ -2,15 +2,14 @@ import json
 import numpy as np
 import torch
 import torch.nn as nn
-from argparse import ArgumentParser
 from omnilearned.network import PET2
 from omnilearned.dataloader import load_data
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from pytorch_optimizer import Lion
-from omnilearned.utils import print_metrics, sum_reduce, is_master_node, ddp_setup,get_param_groups, CLIPLoss
-import torch.nn.functional as F  # Keep this for function calls
-import time, sys, os
+from omnilearned.utils import is_master_node, ddp_setup,get_param_groups, CLIPLoss
+import time
+import os
 
 def train_step(
         model,
