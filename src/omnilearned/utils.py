@@ -3,12 +3,10 @@ import os
 import numpy as np
 import torch
 import torch.nn as nn
-from argparse import ArgumentParser
 from typing import Tuple
 
-from omnilearned.network import PET2
 import torch.distributed as dist
-from torch.distributed import init_process_group, destroy_process_group, get_rank
+from torch.distributed import init_process_group, get_rank
 import torch.nn.functional as F
 
 

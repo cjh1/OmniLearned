@@ -1,18 +1,14 @@
 import torch
-import torch.nn as nn
 import h5py
 from argparse import ArgumentParser
 from torch.utils.data import Dataset, DataLoader
-import torch.distributed as dist
-from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import (
     DistributedSampler,
 )  # Distribute data across multiple gpus
-from torch.distributed import init_process_group, destroy_process_group, get_rank
-import numpy as np
 import random
 import requests
-import re, os
+import re
+import os
 from urllib.parse import urljoin
 
 

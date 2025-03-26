@@ -1,11 +1,9 @@
 import torch
 import torch.nn as nn
 import einops
-import numpy as np
 
 from omnilearned.layers import (
     NoScaleDropout,
-    RMSNorm,
     InteractionBlock,
     LocalEmbeddingBlock,
     MLP,
@@ -13,7 +11,7 @@ from omnilearned.layers import (
     DynamicTanh,
     InputBlock,
 )
-from omnilearned.diffusion import MPFourier, get_logsnr_alpha_sigma, perturb
+from omnilearned.diffusion import MPFourier, perturb
 
 
 class PET2(nn.Module):
