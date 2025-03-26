@@ -284,7 +284,7 @@ def restore_checkpoint(model,
     best_loss = checkpoint['loss']
     try:
         optimizer.load_state_dict(checkpoint['optimizer'])
-    except Exception as e:
+    except Exception:
         print("Optimizer cannot be loaded back, skipping...")
     lr_scheduler.load_state_dict(checkpoint['sched'])
     return startEpoch, best_loss
