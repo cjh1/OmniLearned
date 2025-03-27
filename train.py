@@ -170,7 +170,8 @@ def train_model(model,
                 use_clip=True,
                 output_dir="",
                 save_tag="",
-                iterations_per_epoch = -1):
+                iterations_per_epoch = -1,
+                fine_tune=False):
 
     
 
@@ -187,7 +188,7 @@ def train_model(model,
     if os.path.isfile(os.path.join(output_dir,checkpoint_name)):
         if is_master_node(): print(f"Loading checkpoint from {os.path.join(output_dir,checkpoint_name)}")
         epoch_init, tracker["bestValLoss"] = restore_checkpoint(model,optimizer,lr_scheduler,
-                                                                output_dir,checkpoint_name,device)
+                                                                output_dir,checkpoint_name,device,fine_tune=fine_tune)
         
         
     for epoch in range(int(epoch_init),num_epochs):
@@ -221,11 +222,11 @@ def train_model(model,
         if is_master_node() and  losses["val_loss"][-1] < tracker["bestValLoss"]:
             print("replacing best checkpoint ...")
             tracker["bestValLoss"] = losses["val_loss"][-1]
-            save_checkpoint(model,epoch+1,optimizer,
-                            losses["val_loss"][-1],                            
-                            lr_scheduler,output_dir,
-                            checkpoint_name)
-                                
+            # save_checkpoint(model,epoch+1,optimizer,
+            #                 losses["val_loss"][-1],                            
+            #                 lr_scheduler,output_dir,
+            #                 checkpoint_name)
+            
         if epoch - tracker["bestEpoch"] > patience:
             print(f"breaking on device: {device}")
             break
@@ -268,26 +269,31 @@ def restore_checkpoint(model,
                        optimizer,
                        lr_scheduler,
                        checkpoint_dir,
-                       checkpoint_name,
-                       device):
+                       checkpoint_name,                       
+                       device,
+                       fine_tune=False):
     checkpoint = torch.load(os.path.join(checkpoint_dir,checkpoint_name),
                             map_location='cuda:{}'.format(device))
     model.module.body.load_state_dict(checkpoint["body"],strict=False)
 
-    if model.module.classifier is not None:
-        model.module.classifier.load_state_dict(checkpoint["classifier_head"],strict=False)
+    if not fine_tune:
+        if model.module.classifier is not None:
+            model.module.classifier.load_state_dict(checkpoint["classifier_head"],strict=False)
 
-    if model.module.generator is not None:
-        model.module.generator.load_state_dict(checkpoint["generator_head"], strict=False)
-    
+        if model.module.generator is not None:
+            model.module.generator.load_state_dict(checkpoint["generator_head"], strict=False)
             
-    startEpoch = checkpoint['epoch'] + 1
-    best_loss = checkpoint['loss']
+        lr_scheduler.load_state_dict(checkpoint['sched'])                
+        startEpoch = checkpoint['epoch'] + 1
+        best_loss = checkpoint['loss']
+    else:
+        startEpoch = 0.
+        best_loss = np.inf
     try:
         optimizer.load_state_dict(checkpoint['optimizer'])
     except Exception as e:
         print("Optimizer cannot be loaded back, skipping...")
-    lr_scheduler.load_state_dict(checkpoint['sched'])
+
     return startEpoch, best_loss
 
 def main(args=None):
@@ -320,6 +326,7 @@ def main(args=None):
     model = DDP(model.to(local_rank), device_ids=[local_rank],
                 #find_unused_parameters=True
                 )
+    
     optimizer = Lion(param_groups, lr=args.lr,betas=(args.b1,args.b2))
 
     if rank==0:
@@ -342,7 +349,7 @@ def main(args=None):
                             use_add = args.use_add,
                             path=args.path,
                             batch = args.batch)
-
+    
     train_model(model, 
                 train_loader, 
                 test_loader, 
@@ -352,7 +359,8 @@ def main(args=None):
                 output_dir=args.outdir, 
                 save_tag=args.save_tag,
                 use_clip = args.use_clip,
-                iterations_per_epoch = args.iterations
+                iterations_per_epoch = args.iterations,
+                fine_tune=args.fine_tune
                 )
 
 
@@ -366,6 +374,7 @@ if __name__ == '__main__':
     parser.add_argument("--save_tag",dest="save_tag",default="",help="Extra tag for checkpoint model",)
     parser.add_argument("--dataset",default="top",help="Dataset to load")
     parser.add_argument("--path",default="/pscratch/sd/v/vmikuni/PET/datasets",help="Dataset path")
+    parser.add_argument("--fine_tune", action='store_true', default=False, help='Fine tune a model using trained weights')
 
     #Model Options
     parser.add_argument("--use_pid", action='store_true', default=False, help='Use particle ID for training')
