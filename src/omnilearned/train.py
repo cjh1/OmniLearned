@@ -184,6 +184,7 @@ def train_model(
     output_dir="",
     save_tag="",
     iterations_per_epoch=-1,
+    fine_tune=False,
 ):
 
     checkpoint_name = f"best_model_{save_tag}.pt"
@@ -203,9 +204,14 @@ def train_model(
         if is_master_node():
             print(f"Loading checkpoint from {os.path.join(output_dir,checkpoint_name)}")
         epoch_init, tracker["bestValLoss"] = restore_checkpoint(
-            model, optimizer, lr_scheduler, output_dir, checkpoint_name, device
+            model,
+            optimizer,
+            lr_scheduler,
+            output_dir,
+            checkpoint_name,
+            device,
+            fine_tune=fine_tune,
         )
-
     for epoch in range(int(epoch_init), num_epochs):
         train_loader.sampler.set_epoch(epoch)
 
@@ -308,7 +314,13 @@ def save_checkpoint(
 
 
 def restore_checkpoint(
-    model, optimizer, lr_scheduler, checkpoint_dir, checkpoint_name, device
+    model,
+    optimizer,
+    lr_scheduler,
+    checkpoint_dir,
+    checkpoint_name,
+    device,
+    fine_tune=False,
 ):
     checkpoint = torch.load(
         os.path.join(checkpoint_dir, checkpoint_name),
@@ -316,23 +328,29 @@ def restore_checkpoint(
     )
     model.module.body.load_state_dict(checkpoint["body"], strict=False)
 
-    if model.module.classifier is not None:
-        model.module.classifier.load_state_dict(
-            checkpoint["classifier_head"], strict=False
-        )
+    if not fine_tune:
+        if model.module.classifier is not None:
+            model.module.classifier.load_state_dict(
+                checkpoint["classifier_head"], strict=False
+            )
 
-    if model.module.generator is not None:
-        model.module.generator.load_state_dict(
-            checkpoint["generator_head"], strict=False
-        )
+        if model.module.generator is not None:
+            model.module.generator.load_state_dict(
+                checkpoint["generator_head"], strict=False
+            )
 
-    startEpoch = checkpoint["epoch"] + 1
-    best_loss = checkpoint["loss"]
+        lr_scheduler.load_state_dict(checkpoint["sched"])
+        startEpoch = checkpoint["epoch"] + 1
+        best_loss = checkpoint["loss"]
+    else:
+        startEpoch = 0.0
+        best_loss = np.inf
+
     try:
         optimizer.load_state_dict(checkpoint["optimizer"])
     except Exception:
         print("Optimizer cannot be loaded back, skipping...")
-    lr_scheduler.load_state_dict(checkpoint["sched"])
+
     return startEpoch, best_loss
 
 
@@ -441,6 +459,7 @@ def run(
         save_tag=save_tag,
         use_clip=use_clip,
         iterations_per_epoch=iterations,
+        fine_tune=fine_tune,
     )
 
     # destroy_process_group()
