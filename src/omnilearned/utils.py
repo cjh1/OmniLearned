@@ -165,14 +165,16 @@ def ddp_setup():
         os.environ["MASTER_ADDR"] = "localhost"
         os.environ["MASTER_PORT"] = "2900"
         os.environ["RANK"] = "0"
-        init_process_group(backend="nccl", rank=0, world_size=1)
+        init_process_group(rank=0, world_size=1)
         rank = local_rank = 0
     else:
-        init_process_group(backend="nccl", init_method="env://")
+        init_process_group(init_method="env://")
         # overwrite variables with correct values from env
         local_rank = int(os.environ["LOCAL_RANK"])
         rank = get_rank()
 
-    torch.cuda.set_device(local_rank)
-    torch.backends.cudnn.benchmark = True
+    if torch.cuda.is_available():
+        torch.cuda.set_device(local_rank)
+        torch.backends.cudnn.benchmark = True
+
     return local_rank, rank
