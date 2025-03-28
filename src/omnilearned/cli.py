@@ -4,7 +4,8 @@ from omnilearned.train import run as run_training
 from omnilearned.dataloader import load_data
 
 app = typer.Typer(
-    help="OmniLearned: A unified deep learning approach for particle physics"
+    help="OmniLearned: A unified deep learning approach for particle physics",
+    no_args_is_help=True
 )
 
 
