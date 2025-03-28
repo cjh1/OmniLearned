@@ -7,7 +7,7 @@ name = "omnilearned"
 description = "OmniLearned: A unified deep learning approach for particle physics"
 dynamic = ["version"]
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [
     {name = "Vinicius Mikuni", email = "vmikuni@gmail.com"},
