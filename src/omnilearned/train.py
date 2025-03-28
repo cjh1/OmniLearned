@@ -310,9 +310,10 @@ def restore_checkpoint(
     is_main_node=False,
     fine_tune=False,
 ):
+    device = device = "cuda:{}".format(device) if torch.cuda.is_available() else "cpu"
     checkpoint = torch.load(
         os.path.join(checkpoint_dir, checkpoint_name),
-        map_location="cuda:{}".format(device),
+        map_location=device,
     )
 
     base_model = model.module if hasattr(model, "module") else model
@@ -508,10 +509,19 @@ def run(
             fine_tune=fine_tune,
         )
 
+    # Transfer model to GPU if available
+    kwarg = {}
+    if torch.cuda.is_available():
+        device = local_rank
+        model.to(local_rank)
+        kwarg["device_ids"] = [device]
+    else:
+        model.cpu()
+        device = "cpu"
+
     model = DDP(
-        model.to(local_rank),
-        device_ids=[local_rank],
-        # find_unused_parameters=True
+        model,
+        **kwarg,
     )
 
     train_model(
@@ -521,7 +531,7 @@ def run(
         optimizer,
         lr_scheduler,
         num_epochs=epoch,
-        device=local_rank,
+        device=device,
         output_dir=outdir,
         save_tag=save_tag,
         use_clip=use_clip,
