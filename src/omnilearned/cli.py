@@ -15,10 +15,15 @@ def train(
         "", "--output_dir", "-o", help="Directory to output best model"
     ),
     save_tag: str = typer.Option("", help="Extra tag for checkpoint model"),
+    pretrain_tag: str = typer.Option(
+        "", help="Tag given to pretrained checkpoint model"
+    ),
     dataset: str = typer.Option("top", help="Dataset to load"),
     path: str = typer.Option(
         "/pscratch/sd/v/vmikuni/PET/datasets", help="Dataset path"
     ),
+    fine_tune: bool = typer.Option(False, help="Fine tune the model"),
+    resuming: bool = typer.Option(False, help="Resume training"),
     # Model Options
     use_pid: bool = typer.Option(False, help="Use particle ID for training"),
     use_add: bool = typer.Option(
@@ -39,13 +44,16 @@ def train(
     b1: float = typer.Option(0.95, help="Lion b1"),
     b2: float = typer.Option(0.98, help="Lion b2"),
     lr: float = typer.Option(5e-4, help="Learning rate"),
+    lr_factor: float = typer.Option(
+        0.1, help="Learning rate reduction for fine-tuning"
+    ),
     wd: float = typer.Option(0.3, help="Weight decay"),
     # Model
     num_transf: int = typer.Option(6, help="Number of transformer blocks"),
     num_tokens: int = typer.Option(4, help="Number of trainable tokens"),
     num_head: int = typer.Option(8, help="Number of transformer heads"),
     K: int = typer.Option(15, help="Number of nearest neighbors"),
-    radius: int = typer.Option(0.4, help="Local neighborhood radius"),
+    radius: float = typer.Option(0.4, help="Local neighborhood radius"),
     base_dim: int = typer.Option(64, help="Base value for dimensions"),
     mlp_ratio: int = typer.Option(2, help="Multiplier for MLP layers"),
     attn_drop: float = typer.Option(0.1, help="Dropout for attention layers"),
@@ -55,8 +63,11 @@ def train(
     run_training(
         outdir,
         save_tag,
+        pretrain_tag,
         dataset,
         path,
+        fine_tune,
+        resuming,
         use_pid,
         use_add,
         use_clip,
@@ -68,6 +79,7 @@ def train(
         b1,
         b2,
         lr,
+        lr_factor,
         wd,
         num_transf,
         num_tokens,

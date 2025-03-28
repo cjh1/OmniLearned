@@ -102,22 +102,62 @@ def sum_reduce(num, device):
     return rt
 
 
-def get_param_groups(model, wd):
-    no_decay = []
-    decay = []
+def get_param_groups(model, wd, lr, lr_factor=0.1, fine_tune=False):
+    no_decay, decay = [], []
+    last_layer_no_decay, last_layer_decay = [], []
 
     for name, param in model.named_parameters():
-        if any(keyword in name for keyword in model.no_weight_decay()):
-            no_decay.append(param)  # Exclude from weight decay
-        else:
-            decay.append(param)  # Apply weight decay
+        if not param.requires_grad:
+            continue
 
+        is_last_layer = name.startswith("classifier.out")  # Targets model.out layer
+
+        if any(keyword in name for keyword in model.no_weight_decay()):
+            if is_last_layer:
+                last_layer_no_decay.append(param)
+            else:
+                no_decay.append(param)
+        else:
+            if is_last_layer:
+                last_layer_decay.append(param)
+            else:
+                decay.append(param)
+
+    # Base learning rate groups
     param_groups = [
-        {"params": decay, "weight_decay": wd},
-        {"params": no_decay, "weight_decay": 0.0},
+        {"params": decay, "weight_decay": wd, "lr": lr},
+        {"params": no_decay, "weight_decay": 0.0, "lr": lr},
     ]
 
+    # Adjust learning rate for last layer if fine-tuning
+    last_layer_lr = lr / lr_factor if fine_tune else lr
+
+    if last_layer_decay:
+        param_groups.append(
+            {"params": last_layer_decay, "weight_decay": wd, "lr": last_layer_lr}
+        )
+    if last_layer_no_decay:
+        param_groups.append(
+            {"params": last_layer_no_decay, "weight_decay": 0.0, "lr": last_layer_lr}
+        )
+
+    # Adjust learning rate for last layer if fine-tuning
+    last_layer_lr = lr / lr_factor if fine_tune else lr
+
+    if last_layer_decay:
+        param_groups.append(
+            {"params": last_layer_decay, "weight_decay": wd, "lr": last_layer_lr}
+        )
+    if last_layer_no_decay:
+        param_groups.append(
+            {"params": last_layer_no_decay, "weight_decay": 0.0, "lr": last_layer_lr}
+        )
+
     return param_groups
+
+
+def get_checkpoint_name(tag):
+    return f"best_model_{tag}.pt"
 
 
 def is_master_node():

@@ -111,7 +111,15 @@ def download_h5_files(base_url, destination_folder):
 
 
 class HEPDataset(Dataset):
-    def __init__(self, file_paths, use_pid=False, pid_idx=-1, use_add=False, num_add=4):
+    def __init__(
+        self,
+        file_paths,
+        use_pid=False,
+        pid_idx=-1,
+        use_add=False,
+        num_add=4,
+        label_shift=0,
+    ):
         """
         Args:
             file_paths (list): List of file paths.
@@ -122,6 +130,7 @@ class HEPDataset(Dataset):
         self.use_add = use_add
         self.pid_idx = pid_idx
         self.num_add = num_add
+        self.label_shift = label_shift
 
         self.file_paths = file_paths
         self.file_indices = []  # [(file_index, sample_index), ...]
@@ -158,7 +167,7 @@ class HEPDataset(Dataset):
 
         sample["X"] = torch.tensor(f["data"][sample_idx], dtype=torch.float32)
         label = f["pid"][sample_idx]
-        sample["y"] = torch.tensor(label, dtype=torch.int64)
+        sample["y"] = torch.tensor(label - self.label_shift, dtype=torch.int64)
 
         if "global" in f:
             sample["cond"] = torch.tensor(f["global"][sample_idx], dtype=torch.float32)
@@ -205,6 +214,7 @@ def load_data(
         "jetclass",
         "jetclass2",
         "h1",
+        "toy",
     ]
     if dataset_name not in supported_datasets:
         raise ValueError(
@@ -212,7 +222,7 @@ def load_data(
         )
 
     if dataset_name == "pretrain":
-        names = ["atlas", "aspen", "jetclass", "h1"]
+        names = ["atlas", "aspen", "jetclass", "jetclass2", "h1"]
     else:
         names = [dataset_name]
 
@@ -236,8 +246,16 @@ def load_data(
             if os.path.isfile(os.path.join(dataset_path, f))
         ]
 
+    # Shift labels if they are not used for pretrain
+    label_shift = {"jetclass": 2, "aspen": 12, "jetclass2": 13}
+
     data = HEPDataset(
-        file_list, use_pid=use_pid, pid_idx=pid_idx, use_add=use_add, num_add=num_add
+        file_list,
+        use_pid=use_pid,
+        pid_idx=pid_idx,
+        use_add=use_add,
+        num_add=num_add,
+        label_shift=label_shift.get(dataset_name, 0),
     )
 
     loader = DataLoader(
