@@ -191,7 +191,7 @@ def load_data(dataset_name,path,
               use_pid=False, pid_idx = 4,
               use_add = False,num_add = 4):
     
-    supported_datasets = ['top', 'qg', 'pretrain', 'atlas','aspen', 'jetclass', 'jetclass2', 'h1']
+    supported_datasets = ['top', 'qg', 'pretrain', 'atlas','aspen', 'jetclass', 'jetclass2', 'h1','toy']
     if dataset_name not in supported_datasets:
         raise ValueError(f"Dataset '{dataset_name}' not supported. Choose from {supported_datasets}.")
 
