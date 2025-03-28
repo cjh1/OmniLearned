@@ -120,7 +120,6 @@ class PET2(nn.Module):
             if self.mode == 'pretrain':
                 y_perturb = self.classifier(z_body)
 
-
         return y_pred,y_perturb,z_pred, v, x_body, z_body
 
 
@@ -139,12 +138,13 @@ class PET_classifier(nn.Module):
         self.num_tokens = num_tokens
         self.num_add = num_add
 
-        self.out = nn.Sequential(
+        self.fc = nn.Sequential(
             MLP(hidden_size*(self.num_tokens + self.num_add),
                 int(mlp_ratio*num_tokens*hidden_size),
                 act_layer = act_layer,
                 drop=mlp_drop),
-            nn.Linear((self.num_tokens + self.num_add)*hidden_size, num_classes))
+            )
+        self.out = nn.Linear((self.num_tokens + self.num_add)*hidden_size, num_classes)
 
         self.initialize_weights()
 
@@ -163,7 +163,8 @@ class PET_classifier(nn.Module):
 
     def forward(self, x):
         B = x.shape[0]
-        return self.out(x[:,:self.num_tokens+ self.num_add].reshape(B,-1))
+        x = self.fc(x[:,:self.num_tokens+ self.num_add].reshape(B,-1))
+        return self.out(x)
 
 
 class PET_generator(nn.Module):
@@ -208,12 +209,14 @@ class PET_generator(nn.Module):
         ])
 
 
-        self.out = nn.Sequential(
+        self.fc = nn.Sequential(
             MLP(hidden_size,
                 int(mlp_ratio*hidden_size),
                 act_layer = act_layer,
                 drop=mlp_drop),
-            nn.Linear(hidden_size, output_size))
+            )
+
+        self.out = nn.Linear(hidden_size, output_size)
 
         self.initialize_weights()
 
@@ -249,8 +252,8 @@ class PET_generator(nn.Module):
 
         for ib, blk in enumerate(self.in_blocks):
             x = x + blk(x,mask=mask)
-
-        return self.out(x[:,self.num_add:])*mask[:,self.num_add:]
+        x = self.fc(x[:,self.num_add:])*mask[:,self.num_add:]
+        return self.out(x)*mask[:,self.num_add:]
 
 
 class PET_body(nn.Module):
@@ -403,14 +406,11 @@ class PET_body(nn.Module):
         #Combine local + global info
         x = x_embed + local_features + x_glob
         #Add classification tokens
-
         if pid is not None and self.pid:
             #Encode the PID info
             x = x + self.pid_embed(pid)*mask
         if add_info is not None and self.add_info:
-            x = x + self.add_embed(add)*mask
-
-
+            x = x + self.add_embed(add_info)*mask
 
         if cond is not None and self.conditional:
             #Conditional information: jet level quantities for example
@@ -433,6 +433,7 @@ class PET_body(nn.Module):
 
         for ib, blk in enumerate(self.in_blocks):
             x = x + blk(x,mask=mask, x_int = x_int)
+
 
         x = self.norm(x)*mask
         return x
