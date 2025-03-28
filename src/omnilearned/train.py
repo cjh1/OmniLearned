@@ -8,7 +8,7 @@ from omnilearned.dataloader import load_data
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from pytorch_optimizer import Lion
-from omnilearned.utils import print_metrics, sum_reduce, is_master_node, ddp_setup,get_param_groups, CLIPLoss
+from omnilearned.utils import print_metrics, sum_reduce, is_master_node, ddp_setup,get_param_groups, CLIPLoss, get_checkpoint_name
 import torch.nn.functional as F  # Keep this for function calls
 import time, sys, os
 
@@ -85,7 +85,7 @@ def train_step(
     if dist.is_initialized():
         for key in logs:
             dist.all_reduce(logs[key].detach())
-            logs[key] = float(logs[key]/dist.get_world_size()/len(dataloader))
+            logs[key] = float(logs[key]/dist.get_world_size()/iterations_per_epoch)
 
     return logs
 
@@ -154,14 +154,17 @@ def test_step(model,
     if dist.is_initialized():
         for key in logs:
             dist.all_reduce(logs[key].detach())
-            logs[key] = float(logs[key]/dist.get_world_size()/len(dataloader))
+            logs[key] = float(logs[key]/dist.get_world_size()/iterations_per_epoch)
 
     return logs
+
+
 
 def train_model(model,
                 train_loader,
                 test_loader,
                 optimizer,
+                lr_scheduler,
                 num_epochs=1,
                 device='cpu',
                 patience=100,
@@ -171,24 +174,21 @@ def train_model(model,
                 output_dir="",
                 save_tag="",
                 iterations_per_epoch = -1,
-                fine_tune=False):
+                epoch_init = 0,
+                loss_init = np.inf):
 
 
 
-    checkpoint_name = f"best_model_{save_tag}.pt"
+    checkpoint_name = get_checkpoint_name(save_tag)
 
     losses = {"train_loss": [],
               "val_loss": [],}
 
-    tracker = {"bestValLoss": np.inf,
-               "bestEpoch": 0}
+    tracker = {"bestValLoss": loss_init,
+               "bestEpoch": epoch_init}
 
-    lr_scheduler =  torch.optim.lr_scheduler.CosineAnnealingLR(optimizer,(len(train_loader) * num_epochs))
-    epoch_init = 0
-    if os.path.isfile(os.path.join(output_dir,checkpoint_name)):
-        if is_master_node(): print(f"Loading checkpoint from {os.path.join(output_dir,checkpoint_name)}")
-        epoch_init, tracker["bestValLoss"] = restore_checkpoint(model,optimizer,lr_scheduler,
-                                                                output_dir,checkpoint_name,device,fine_tune=fine_tune)
+    
+
     for epoch in range(int(epoch_init),num_epochs):
         train_loader.sampler.set_epoch(epoch)
 
@@ -217,14 +217,14 @@ def train_model(model,
 
 
 
-        if is_master_node() and  losses["val_loss"][-1] < tracker["bestValLoss"]:
-            print("replacing best checkpoint ...")
-            tracker["bestValLoss"] = losses["val_loss"][-1]
-            save_checkpoint(model,epoch+1,optimizer,
-                            losses["val_loss"][-1],
-                            lr_scheduler,output_dir,
-                            checkpoint_name)
-
+            if losses["val_loss"][-1] < tracker["bestValLoss"]:
+                print("replacing best checkpoint ...")
+                tracker["bestValLoss"] = losses["val_loss"][-1]
+                save_checkpoint(model,epoch+1,optimizer,
+                                losses["val_loss"][-1],
+                                lr_scheduler,output_dir,
+                                checkpoint_name)
+                
         if epoch - tracker["bestEpoch"] > patience:
             print(f"breaking on device: {device}")
             break
@@ -269,36 +269,67 @@ def restore_checkpoint(model,
                        checkpoint_dir,
                        checkpoint_name,                       
                        device,
+                       is_main_node = False,
                        fine_tune=False):
     checkpoint = torch.load(os.path.join(checkpoint_dir,checkpoint_name),
                             map_location='cuda:{}'.format(device))
-    model.module.body.load_state_dict(checkpoint["body"],strict=False)
+    
+    base_model = model.module if hasattr(model, "module") else model
+    base_model.to(device)
+    base_model.body.load_state_dict(checkpoint["body"],strict=False)
 
     if not fine_tune:
-        if model.module.classifier is not None:
-            model.module.classifier.load_state_dict(checkpoint["classifier_head"],strict=False)
+        if base_model.classifier is not None and "classifier_head" in checkpoint:            
+            base_model.classifier.load_state_dict(checkpoint["classifier_head"],strict=False)
 
-        if model.module.generator is not None:
-            model.module.generator.load_state_dict(checkpoint["generator_head"], strict=False)
+        if base_model.generator is not None:
+            base_model.generator.load_state_dict(checkpoint["generator_head"], strict=False)
             
         lr_scheduler.load_state_dict(checkpoint['sched'])                
         startEpoch = checkpoint['epoch'] + 1
         best_loss = checkpoint['loss']
     else:
+        if base_model.classifier is not None and "classifier_head" in checkpoint:
+            classifier_state = checkpoint["classifier_head"]
+            model_state = base_model.classifier.state_dict()
+            filtered_state = {}
+            for k, v in classifier_state.items():
+                if k in model_state and model_state[k].shape == v.shape:
+                    filtered_state[k] = v
+                else:
+                    if is_main_node: print(f"Skipping {k}: shape mismatch (checkpoint: {v.shape}, model: {model_state[k].shape if k in model_state else 'missing'})")
+
+            load_result = base_model.classifier.load_state_dict(filtered_state, strict=False)            
+
+        if base_model.generator is not None:
+            classifier_state = checkpoint["generator_head"]
+            model_state = base_model.generator.state_dict()
+            filtered_state = {}
+            for k, v in classifier_state.items():
+                if k in model_state and model_state[k].shape == v.shape:
+                    filtered_state[k] = v
+                else:
+                    if is_main_node:  print(f"Skipping {k}: shape mismatch (checkpoint: {v.shape}, model: {model_state[k].shape if k in model_state else 'missing'})")
+
+            load_result = base_model.generator.load_state_dict(filtered_state, strict=False)            
+        
         startEpoch = 0.
         best_loss = np.inf
         
     try:
         optimizer.load_state_dict(checkpoint['optimizer'])
     except Exception as e:
-        print("Optimizer cannot be loaded back, skipping...")
+        if is_main_node:  print("Optimizer cannot be loaded back, skipping...")
 
     return startEpoch, best_loss
 
 def run(outdir: str = "",
         save_tag: str = "",
+        pretrain_tag: str = "pretrain",
         dataset: str = "top",
         path: str = "/pscratch/sd/v/vmikuni/PET/datasets",
+        fine_tune: bool = False,
+        resuming: bool = False,
         use_pid: bool = False,
         use_add: bool = False,
         use_clip: bool = False,
@@ -310,12 +341,13 @@ def run(outdir: str = "",
         b1: float = 0.95,
         b2: float = 0.98,
         lr: float = 5e-4,
+        lr_factor: float = 10.,
         wd: float = 0.3,
         num_transf: int = 6,
         num_tokens: int = 4,
         num_head: int = 8,
         K: int = 15,
-        radius: int = 0.4,
+        radius: float = 0.4,
         base_dim: int = 64,
         mlp_ratio: int = 2,
         attn_drop: float = 0.1,
@@ -323,7 +355,6 @@ def run(outdir: str = "",
         feature_drop: float = 0.0):
 
     local_rank,rank = ddp_setup()
-
     # set up model
     model = PET2(input_dim=4,
                  hidden_size=base_dim,
@@ -343,19 +374,12 @@ def run(outdir: str = "",
                  mode = mode)
 
     if rank==0:
+        d = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
         print('**** Setup ****')
         print('Total params: %.2fM' % (sum(p.numel() for p in model.parameters())/1000000.0))
+        print(f"Training on device: {d}")
         print('************')
 
-    param_groups = get_param_groups(model,wd)
-    model = DDP(model.to(local_rank), device_ids=[local_rank],
-                #find_unused_parameters=True
-                )
-    optimizer = Lion(param_groups, lr=lr,betas=(b1, b2))
-
-    if rank==0:
-        d = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-        print(f"Training on device: {d}")
 
     # load in train data
     train_loader = load_data(dataset,dataset_type='train',
@@ -375,19 +399,50 @@ def run(outdir: str = "",
                             path=path,
                             batch = batch)
 
+
+    param_groups = get_param_groups(model,wd, lr,
+                                    lr_factor = lr_factor,
+                                    fine_tune=fine_tune)
+    optimizer = Lion(param_groups,betas=(b1, b2))
+    lr_scheduler =  torch.optim.lr_scheduler.CosineAnnealingLR(optimizer,(len(train_loader) * epoch))
+
+    epoch_init = 0
+    loss_init = np.inf
+    
+    if os.path.isfile(os.path.join(outdir,get_checkpoint_name(save_tag))) and resuming:
+        if is_master_node(): print(f"Continue training with checkpoint from {os.path.join(outdir,get_checkpoint_name(save_tag))}")
+        epoch_init, loss_init = restore_checkpoint(model,optimizer,lr_scheduler,
+                                                   outdir,get_checkpoint_name(save_tag),
+                                                   local_rank)
+        
+    if os.path.isfile(os.path.join(outdir,get_checkpoint_name(pretrain_tag))) and fine_tune:
+        if is_master_node(): print(f"Will fine-tune using checkpoint {os.path.join(outdir,get_checkpoint_name(pretrain_tag))}")
+        epoch_init, loss_init = restore_checkpoint(model,optimizer,lr_scheduler,
+                                                   outdir,get_checkpoint_name(pretrain_tag),
+                                                   local_rank,
+                                                   fine_tune=fine_tune)
+
+
+    model = DDP(model.to(local_rank), device_ids=[local_rank],
+                #find_unused_parameters=True
+                )
+            
+
     train_model(model,
                 train_loader,
                 test_loader,
                 optimizer,
+                lr_scheduler,
                 num_epochs = epoch,
                 device=local_rank,
                 output_dir=outdir,
                 save_tag=save_tag,
                 use_clip = use_clip,
                 iterations_per_epoch = iterations,
-                fine_tune=fine_tune
+                epoch_init=epoch_init,
+                loss_init = loss_init,
                 )
 
 
-    #destroy_process_group()
+    dist.destroy_process_group()
 
