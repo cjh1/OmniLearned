@@ -3,21 +3,24 @@ import os
 import numpy as np
 import torch
 import torch.nn as nn
-from argparse import ArgumentParser
 from typing import Tuple
 
-from omnilearned.network import PET2
 import torch.distributed as dist
-from torch.distributed import init_process_group, destroy_process_group, get_rank
+from torch.distributed import init_process_group, get_rank
 import torch.nn.functional as F
 
-def print_metrics(y_preds, y, thresholds=[0.3,0.5],background_class=0):
 
-    y_preds_np = F.softmax(y_preds,-1).detach().cpu().numpy()
+def print_metrics(y_preds, y, thresholds=[0.3, 0.5], background_class=0):
+
+    y_preds_np = F.softmax(y_preds, -1).detach().cpu().numpy()
     y_np = y.detach().cpu().numpy()
 
     # Compute multiclass AUC
-    auc_ovo = metrics.roc_auc_score(y_np, y_preds_np if y_preds_np.shape[-1]>2 else np.argmax(y_preds_np,-1), multi_class='ovo')
+    auc_ovo = metrics.roc_auc_score(
+        y_np,
+        y_preds_np if y_preds_np.shape[-1] > 2 else np.argmax(y_preds_np, -1),
+        multi_class="ovo",
+    )
     print(f"AUC: {auc_ovo:.4f}\n")
 
     num_classes = y_preds.shape[1]
@@ -29,7 +32,9 @@ def print_metrics(y_preds, y, thresholds=[0.3,0.5],background_class=0):
         # Create binary labels: 1 for signal_class, 0 for background_class, ignore others
         mask = (y_np == signal_class) | (y_np == background_class)
         y_bin = (y_np[mask] == signal_class).astype(int)
-        scores_bin = y_preds_np[mask, signal_class]/(y_preds_np[mask, signal_class] + y_preds_np[mask, background_class])
+        scores_bin = y_preds_np[mask, signal_class] / (
+            y_preds_np[mask, signal_class] + y_preds_np[mask, background_class]
+        )
 
         # Compute ROC
         fpr, tpr, _ = metrics.roc_curve(y_bin, scores_bin)
@@ -37,16 +42,21 @@ def print_metrics(y_preds, y, thresholds=[0.3,0.5],background_class=0):
         print(f"Signal class {signal_class} vs Background class {background_class}:")
 
         for threshold in thresholds:
-            bineff = np.argmax(tpr>threshold)
-            print('Class {} effS at {} 1.0/effB = {}'.format(signal_class,tpr[bineff],1.0/fpr[bineff]))
+            bineff = np.argmax(tpr > threshold)
+            print(
+                "Class {} effS at {} 1.0/effB = {}".format(
+                    signal_class, tpr[bineff], 1.0 / fpr[bineff]
+                )
+            )
+
 
 class CLIPLoss(nn.Module):
-    #From AstroCLIP: https://github.com/PolymathicAI/AstroCLIP/blob/main/astroclip/models/astroclip.py#L117
+    # From AstroCLIP: https://github.com/PolymathicAI/AstroCLIP/blob/main/astroclip/models/astroclip.py#L117
     def get_logits(
-            self,
-            clean_features: torch.FloatTensor,
-            perturbed_features: torch.FloatTensor,
-            logit_scale: float,
+        self,
+        clean_features: torch.FloatTensor,
+        perturbed_features: torch.FloatTensor,
+        logit_scale: float,
     ) -> Tuple[torch.FloatTensor, torch.FloatTensor]:
         # Normalize image features
         clean_features = F.normalize(clean_features, dim=-1, eps=1e-3)
@@ -82,17 +92,15 @@ class CLIPLoss(nn.Module):
         return {"contrastive_loss": total_loss} if output_dict else total_loss
 
 
-
-
 def sum_reduce(num, device):
-    r''' Sum the tensor across the devices.
-    '''
+    r"""Sum the tensor across the devices."""
     if not torch.is_tensor(num):
         rt = torch.tensor(num).to(device)
     else:
         rt = num.clone()
     dist.all_reduce(rt, op=dist.ReduceOp.SUM)
     return rt
+
 
 def get_param_groups(model, wd, lr, lr_factor=0.1, fine_tune=False):
     no_decay, decay = [], []
@@ -101,7 +109,6 @@ def get_param_groups(model, wd, lr, lr_factor=0.1, fine_tune=False):
     for name, param in model.named_parameters():
         if not param.requires_grad:
             continue
-
 
         is_last_layer = name.startswith("classifier.out")  # Targets model.out layer
 
@@ -118,28 +125,47 @@ def get_param_groups(model, wd, lr, lr_factor=0.1, fine_tune=False):
 
     # Base learning rate groups
     param_groups = [
-        {'params': decay, 'weight_decay': wd, 'lr': lr},
-        {'params': no_decay, 'weight_decay': 0.0, 'lr': lr},
+        {"params": decay, "weight_decay": wd, "lr": lr},
+        {"params": no_decay, "weight_decay": 0.0, "lr": lr},
     ]
 
     # Adjust learning rate for last layer if fine-tuning
     last_layer_lr = lr / lr_factor if fine_tune else lr
 
     if last_layer_decay:
-        param_groups.append({'params': last_layer_decay, 'weight_decay': wd, 'lr': last_layer_lr})
+        param_groups.append(
+            {"params": last_layer_decay, "weight_decay": wd, "lr": last_layer_lr}
+        )
     if last_layer_no_decay:
-        param_groups.append({'params': last_layer_no_decay, 'weight_decay': 0.0, 'lr': last_layer_lr})
+        param_groups.append(
+            {"params": last_layer_no_decay, "weight_decay": 0.0, "lr": last_layer_lr}
+        )
+
+    # Adjust learning rate for last layer if fine-tuning
+    last_layer_lr = lr / lr_factor if fine_tune else lr
+
+    if last_layer_decay:
+        param_groups.append(
+            {"params": last_layer_decay, "weight_decay": wd, "lr": last_layer_lr}
+        )
+    if last_layer_no_decay:
+        param_groups.append(
+            {"params": last_layer_no_decay, "weight_decay": 0.0, "lr": last_layer_lr}
+        )
 
     return param_groups
+
 
 def get_checkpoint_name(tag):
     return f"best_model_{tag}.pt"
 
+
 def is_master_node():
-    if 'RANK' in os.environ:
-        return int(os.environ['RANK']) == 0
+    if "RANK" in os.environ:
+        return int(os.environ["RANK"]) == 0
     else:
         return True
+
 
 def ddp_setup():
     """
@@ -154,9 +180,8 @@ def ddp_setup():
         init_process_group(backend="nccl", rank=0, world_size=1)
         rank = local_rank = 0
     else:
-        init_process_group(backend="nccl",
-                           init_method='env://')
-        #overwrite variables with correct values from env
+        init_process_group(backend="nccl", init_method="env://")
+        # overwrite variables with correct values from env
         local_rank = int(os.environ["LOCAL_RANK"])
         rank = get_rank()
 

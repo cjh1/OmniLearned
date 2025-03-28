@@ -15,7 +15,9 @@ def train(
         "", "--output_dir", "-o", help="Directory to output best model"
     ),
     save_tag: str = typer.Option("", help="Extra tag for checkpoint model"),
-    pretrain_tag: str = typer.Option("", help="Tag given to pretrained checkpoint model"),
+    pretrain_tag: str = typer.Option(
+        "", help="Tag given to pretrained checkpoint model"
+    ),
     dataset: str = typer.Option("top", help="Dataset to load"),
     path: str = typer.Option(
         "/pscratch/sd/v/vmikuni/PET/datasets", help="Dataset path"
@@ -42,7 +44,9 @@ def train(
     b1: float = typer.Option(0.95, help="Lion b1"),
     b2: float = typer.Option(0.98, help="Lion b2"),
     lr: float = typer.Option(5e-4, help="Learning rate"),
-    lr_factor: float = typer.Option(0.1, help="Learning rate reduction for fine-tuning"),
+    lr_factor: float = typer.Option(
+        0.1, help="Learning rate reduction for fine-tuning"
+    ),
     wd: float = typer.Option(0.3, help="Weight decay"),
     # Model
     num_transf: int = typer.Option(6, help="Number of transformer blocks"),
@@ -102,6 +106,7 @@ def dataloader(
 
     for tag in ["train", "test", "val"]:
         load_data(dataset, folder, dataset_type=tag, distributed=False)
+
 
 if __name__ == "__main__":
     app()

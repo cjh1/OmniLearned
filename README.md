@@ -31,3 +31,13 @@ For multiple GPUs and SLURM you can use the ```train.sh``` example script
 #Inside an interactive session run
 ./train.sh
 ```
+
+## Contributing
+
+### Linting
+To lint the code, run:
+
+```bash
+black .
+ruff check --fix .
+```
