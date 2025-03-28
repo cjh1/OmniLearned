@@ -407,6 +407,7 @@ def run(
     attn_drop: float = 0.1,
     mlp_drop: float = 0.1,
     feature_drop: float = 0.0,
+    num_workers: int = 16,
 ):
 
     local_rank, rank = ddp_setup()
@@ -448,6 +449,7 @@ def run(
         use_add=use_add,
         path=path,
         batch=batch,
+        num_workers=num_workers,
     )
     if rank == 0:
         print("**** Setup ****")
@@ -461,6 +463,7 @@ def run(
         use_add=use_add,
         path=path,
         batch=batch,
+        num_workers=num_workers,
     )
 
     param_groups = get_param_groups(
