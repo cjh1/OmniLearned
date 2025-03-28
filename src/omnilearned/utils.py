@@ -141,18 +141,6 @@ def get_param_groups(model, wd, lr, lr_factor=0.1, fine_tune=False):
             {"params": last_layer_no_decay, "weight_decay": 0.0, "lr": last_layer_lr}
         )
 
-    # Adjust learning rate for last layer if fine-tuning
-    last_layer_lr = lr / lr_factor if fine_tune else lr
-
-    if last_layer_decay:
-        param_groups.append(
-            {"params": last_layer_decay, "weight_decay": wd, "lr": last_layer_lr}
-        )
-    if last_layer_no_decay:
-        param_groups.append(
-            {"params": last_layer_no_decay, "weight_decay": 0.0, "lr": last_layer_lr}
-        )
-
     return param_groups
 
 
