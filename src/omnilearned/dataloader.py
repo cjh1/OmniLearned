@@ -193,6 +193,7 @@ def load_data(
     pid_idx=4,
     use_add=False,
     num_add=4,
+    num_workers=16,
 ):
 
     supported_datasets = [
@@ -285,7 +286,7 @@ def load_data(
             if distributed
             else None
         ),
-        num_workers=16,
+        num_workers=num_workers,
         drop_last=True,
         collate_fn=collate_point_cloud,
     )
