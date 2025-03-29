@@ -1,6 +1,17 @@
 import torch
 import torch.nn as nn
 
+class LayerScale(nn.Module):
+    def __init__(self, projection_dim, init_values = 1e-3):
+        super().__init__()
+        self.gamma = nn.Parameter(init_values * torch.ones(projection_dim))
+
+    def forward(self, x, mask=None):
+        if mask is not None:
+            return x * self.gamma * mask.unsqueeze(-1)
+        else:
+            return x * self.gamma
+
 
 class DynamicTanh(nn.Module):
     def __init__(self, normalized_shape, channels_last=True, alpha_init_value=0.5):
@@ -466,6 +477,8 @@ class AttBlock(nn.Module):
             norm_layer=norm_layer,
         )
 
+        # self.scale1 = LayerScale(dim)
+        # self.scale2 = LayerScale(dim)
         self.use_int = use_int
         self.skip_linear = nn.Linear(2 * dim, dim) if skip else None
         self.num_heads = num_heads

@@ -10,6 +10,7 @@ from omnilearned.layers import (
     AttBlock,
     DynamicTanh,
     InputBlock,
+    LayerScale,
 )
 from omnilearned.diffusion import MPFourier, perturb
 
@@ -88,7 +89,7 @@ class PET2(nn.Module):
             self.generator = PET_generator(
                 input_dim,
                 hidden_size,
-                num_transformers=num_transformers,
+                num_transformers=2,
                 num_heads=num_heads,
                 mlp_ratio=mlp_ratio,
                 norm_layer=norm_layer,
@@ -112,7 +113,7 @@ class PET2(nn.Module):
     @torch.jit.ignore
     def no_weight_decay(self):
         # Specify parameters that should not be decayed
-        return {"norm"}
+        return {"norm","scale"}
 
     def forward(self, x, y, cond=None, pid=None, add_info=None):
         mask = x[:, :, 3:4] != 0
@@ -162,6 +163,7 @@ class PET_classifier(nn.Module):
                 int(mlp_ratio * num_tokens * hidden_size),
                 act_layer=act_layer,
                 drop=mlp_drop,
+                norm_layer=norm_layer,
             ),
         )
         self.out = nn.Linear(
@@ -237,6 +239,13 @@ class PET_generator(nn.Module):
             ]
         )
 
+        self.in_scales = nn.ModuleList(
+            [
+                LayerScale(hidden_size)                         
+                for _ in range(num_transformers)
+            ]
+        )
+
         self.fc = nn.Sequential(
             MLP(
                 hidden_size,
@@ -278,7 +287,8 @@ class PET_generator(nn.Module):
             x = x + label_embed.unsqueeze(1) * mask
 
         for ib, blk in enumerate(self.in_blocks):
-            x = x + blk(x, mask=mask)
+            x = x + self.in_scales[ib](blk(x, mask=mask))
+            
         x = self.fc(x[:, self.num_add :]) * mask[:, self.num_add :]
         return self.out(x) * mask[:, self.num_add :]
 
@@ -386,16 +396,24 @@ class PET_body(nn.Module):
                     mlp_ratio=mlp_ratio,
                     attn_drop=attn_drop,
                     mlp_drop=mlp_drop,
-                    # act_layer=act_layer,
-                    act_layer=nn.LeakyReLU,
+                    act_layer=act_layer,
+                    #act_layer=nn.LeakyReLU,
                     norm_layer=norm_layer,
                     num_tokens=num_tokens + self.num_add,
                     skip=False,
                     use_int=use_int,
-                )
+                )                         
                 for _ in range(num_transformers)
             ]
         )
+
+        self.in_scales = nn.ModuleList(
+            [
+                LayerScale(hidden_size)                         
+                for _ in range(num_transformers)
+            ]
+        )
+
 
         self.norm = norm_layer(hidden_size)
 
@@ -474,8 +492,10 @@ class PET_body(nn.Module):
         x = torch.cat([token, x], 1)
         mask = torch.cat([torch.ones_like(mask[:, : self.num_tokens]), mask], 1)
 
+        #x_init = x
         for ib, blk in enumerate(self.in_blocks):
-            x = x + blk(x, mask=mask, x_int=x_int)
+            x = x + self.in_scales[ib](blk(x, mask=mask, x_int=x_int))
 
+        #x = x + x_init
         x = self.norm(x) * mask
         return x
