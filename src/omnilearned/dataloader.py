@@ -10,7 +10,7 @@ import requests
 import re
 import os
 from urllib.parse import urljoin
-
+import json
 
 def collate_point_cloud(batch):
     """
@@ -114,6 +114,7 @@ class HEPDataset(Dataset):
     def __init__(
         self,
         file_paths,
+        file_indices = None,
         use_pid=False,
         pid_idx=-1,
         use_add=False,
@@ -133,19 +134,8 @@ class HEPDataset(Dataset):
         self.label_shift = label_shift
 
         self.file_paths = file_paths
-        self.file_indices = []  # [(file_index, sample_index), ...]
         self._file_cache = {}  # lazy cache for open h5py.File handles
-
-        # Precompute indices for efficient access
-        for file_idx, path in enumerate(self.file_paths):
-            try:
-                with h5py.File(path, "r") as f:
-                    num_samples = len(f["data"])
-                    self.file_indices.extend(
-                        [(file_idx, i) for i in range(num_samples)]
-                    )
-            except Exception as e:
-                print(f"ERROR: File {path} is likely corrupted: {e}")
+        self.file_indices = file_indices
 
         random.shuffle(self.file_indices)  # Shuffle data entries globally
 
@@ -229,6 +219,8 @@ def load_data(
     dataset_paths = [os.path.join(path, name, dataset_type) for name in names]
 
     file_list = []
+    file_indices = []
+    index_shift = 0
     for iname, dataset_path in enumerate(dataset_paths):
         if not os.path.exists(dataset_path):
             os.makedirs(dataset_path)
@@ -238,19 +230,44 @@ def load_data(
             url = get_url(names[iname], dataset_type)
             if url is None:
                 raise ValueError(f"No download URL found for dataset '{dataset_name}'.")
-            download_h5_files(url, dataset_path)
+            download_h5_files(url, dataset_path)            
 
-        file_list += [
+        files = [
             os.path.join(dataset_path, f)
             for f in os.listdir(dataset_path)
-            if os.path.isfile(os.path.join(dataset_path, f))
+            if os.path.isfile(os.path.join(dataset_path, f)) and f.endswith('.h5')
         ]
+        file_list += files
 
+        if os.path.isfile(os.path.join(dataset_path, 'file_index.json')):
+            with open(os.path.join(dataset_path, 'file_index.json'), 'r') as f:
+                indices = json.load(f)
+            shifted_indices = [(file_idx + index_shift, sample_idx) for file_idx, sample_idx in indices]
+            file_indices += shifted_indices
+            index_shift += len(files)
+                
+        else:
+            print(f"Creating index list for dataset {names[iname]}")
+            file_indices = []
+            # Precompute indices for efficient access
+            for file_idx, path in enumerate(files):
+                try:
+                    with h5py.File(path, "r") as f:
+                        num_samples = len(f["data"])
+                        file_indices.extend(
+                            [(file_idx, i) for i in range(num_samples)]
+                        )
+                except Exception as e:
+                    print(f"ERROR: File {path} is likely corrupted: {e}")
+            with open(os.path.join(dataset_path, 'file_index.json'), 'w') as f:
+                json.dump(file_indices, f)
+                    
     # Shift labels if they are not used for pretrain
     label_shift = {"jetclass": 2, "aspen": 12, "jetclass2": 13}
 
     data = HEPDataset(
         file_list,
+        file_indices,
         use_pid=use_pid,
         pid_idx=pid_idx,
         use_add=use_add,
