@@ -12,6 +12,7 @@ import os
 from urllib.parse import urljoin
 import json
 
+
 def collate_point_cloud(batch):
     """
     Collate function for point clouds and labels with truncation performed per batch.
@@ -114,7 +115,7 @@ class HEPDataset(Dataset):
     def __init__(
         self,
         file_paths,
-        file_indices = None,
+        file_indices=None,
         use_pid=False,
         pid_idx=-1,
         use_add=False,
@@ -231,22 +232,24 @@ def load_data(
             url = get_url(names[iname], dataset_type)
             if url is None:
                 raise ValueError(f"No download URL found for dataset '{dataset_name}'.")
-            download_h5_files(url, dataset_path)            
+            download_h5_files(url, dataset_path)
 
         files = [
             os.path.join(dataset_path, f)
             for f in os.listdir(dataset_path)
-            if os.path.isfile(os.path.join(dataset_path, f)) and f.endswith('.h5')
+            if os.path.isfile(os.path.join(dataset_path, f)) and f.endswith(".h5")
         ]
         file_list += files
 
-        if os.path.isfile(os.path.join(dataset_path, 'file_index.json')):
-            with open(os.path.join(dataset_path, 'file_index.json'), 'r') as f:
+        if os.path.isfile(os.path.join(dataset_path, "file_index.json")):
+            with open(os.path.join(dataset_path, "file_index.json"), "r") as f:
                 indices = json.load(f)
-            shifted_indices = [(file_idx + index_shift, sample_idx) for file_idx, sample_idx in indices]
+            shifted_indices = [
+                (file_idx + index_shift, sample_idx) for file_idx, sample_idx in indices
+            ]
             file_indices += shifted_indices
             index_shift += len(files)
-                
+
         else:
             print(f"Creating index list for dataset {names[iname]}")
             file_indices = []
@@ -255,14 +258,12 @@ def load_data(
                 try:
                     with h5py.File(path, "r") as f:
                         num_samples = len(f["data"])
-                        file_indices.extend(
-                            [(file_idx, i) for i in range(num_samples)]
-                        )
+                        file_indices.extend([(file_idx, i) for i in range(num_samples)])
                 except Exception as e:
                     print(f"ERROR: File {path} is likely corrupted: {e}")
-            with open(os.path.join(dataset_path, 'file_index.json'), 'w') as f:
+            with open(os.path.join(dataset_path, "file_index.json"), "w") as f:
                 json.dump(file_indices, f)
-                    
+
     # Shift labels if they are not used for pretrain
     label_shift = {"jetclass": 2, "aspen": 12, "jetclass2": 13}
 

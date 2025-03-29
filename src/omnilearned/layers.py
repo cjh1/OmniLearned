@@ -1,8 +1,9 @@
 import torch
 import torch.nn as nn
 
+
 class LayerScale(nn.Module):
-    def __init__(self, projection_dim, init_values = 1e-3):
+    def __init__(self, projection_dim, init_values=1e-3):
         super().__init__()
         self.gamma = nn.Parameter(init_values * torch.ones(projection_dim))
 
