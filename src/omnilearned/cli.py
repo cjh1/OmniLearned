@@ -60,6 +60,7 @@ def train(
     attn_drop: float = typer.Option(0.1, help="Dropout for attention layers"),
     mlp_drop: float = typer.Option(0.1, help="Dropout for mlp layers"),
     feature_drop: float = typer.Option(0.0, help="Dropout for input features"),
+    num_workers: int = typer.Option(16, help="Number of workers for data loading"),
 ):
     run_training(
         outdir,
@@ -92,6 +93,7 @@ def train(
         attn_drop,
         mlp_drop,
         feature_drop,
+        num_workers,
     )
 
 
