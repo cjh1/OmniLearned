@@ -5,7 +5,6 @@ from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.distributed import (
     DistributedSampler,
 )  # Distribute data across multiple gpus
-import random
 import requests
 import re
 import os
