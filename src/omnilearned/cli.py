@@ -23,6 +23,7 @@ def train(
     path: str = typer.Option(
         "/pscratch/sd/v/vmikuni/PET/datasets", help="Dataset path"
     ),
+    wandb: bool = typer.Option(False, help="use wandb logging"),
     fine_tune: bool = typer.Option(False, help="Fine tune the model"),
     resuming: bool = typer.Option(False, help="Resume training"),
     # Model Options
@@ -41,6 +42,7 @@ def train(
     batch: int = typer.Option(64, help="Batch size"),
     iterations: int = typer.Option(-1, help="Number of iterations per pass"),
     epoch: int = typer.Option(15, help="Number of epochs"),
+    use_amp: bool = typer.Option(False, help="Use amp"),
     # Optimizer
     b1: float = typer.Option(0.95, help="Lion b1"),
     b2: float = typer.Option(0.98, help="Lion b2"),
@@ -68,6 +70,7 @@ def train(
         pretrain_tag,
         dataset,
         path,
+        wandb,
         fine_tune,
         resuming,
         use_pid,
@@ -78,6 +81,7 @@ def train(
         batch,
         iterations,
         epoch,
+        use_amp,
         b1,
         b2,
         lr,

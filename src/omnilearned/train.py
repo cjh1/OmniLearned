@@ -16,6 +16,7 @@ from omnilearned.utils import (
 )
 import time
 import os
+import torch.cuda.amp as amp
 
 
 def train_step(
@@ -30,6 +31,8 @@ def train_step(
     clip_loss=CLIPLoss(),
     use_clip=False,
     iterations_per_epoch=-1,
+    use_amp=False,
+    gscaler=None,
 ):
     model.train()
 
@@ -62,31 +65,38 @@ def train_step(
             if key in batch
         }
 
-        y_pred, y_perturb, z_pred, v, x_body, z_body = model(X, y, **model_kwargs)
+        with amp.autocast(enabled=use_amp):
+            y_pred, y_perturb, z_pred, v, x_body, z_body = model(X, y, **model_kwargs)
 
-        loss = 0
-        if y_pred is not None:
-            loss_class = class_cost(y_pred.squeeze(), y)
-            loss = loss + loss_class
-            logs["loss_class"] += loss_class.detach()
-        if z_pred is not None:
-            loss_gen = gen_cost(v, z_pred)
-            loss = loss + loss_gen
-            logs["loss_gen"] += loss_gen.detach()
-        if y_perturb is not None:
-            loss_perturb = class_cost(y_perturb.squeeze(), y)
-            loss = loss + loss_perturb
-            logs["loss_perturb"] += loss_perturb.detach()
-        if use_clip and z_body is not None and x_body is not None:
-            loss_clip = clip_loss(
-                x_body.view(X.shape[0], -1), z_body.view(X.shape[0], -1)
-            )
-            loss = loss + loss_clip
-            logs["loss_clip"] += loss_clip.detach()
+            loss = 0
+            if y_pred is not None:
+                loss_class = class_cost(y_pred.squeeze(), y)
+                loss = loss + loss_class
+                logs["loss_class"] += loss_class.detach()
+            if z_pred is not None:
+                loss_gen = gen_cost(v, z_pred)
+                loss = loss + loss_gen
+                logs["loss_gen"] += loss_gen.detach()
+            if y_perturb is not None:
+                loss_perturb = class_cost(y_perturb.squeeze(), y)
+                loss = loss + loss_perturb
+                logs["loss_perturb"] += loss_perturb.detach()
+            if use_clip and z_body is not None and x_body is not None:
+                loss_clip = clip_loss(
+                    x_body.view(X.shape[0], -1), z_body.view(X.shape[0], -1)
+                )
+                loss = loss + loss_clip
+                logs["loss_clip"] += loss_clip.detach()
 
         logs["loss"] += loss.detach()
-        loss.backward()  # Backward pass
-        optimizer.step()  # Update parameters
+
+        if use_amp and gscaler is not None:
+            gscaler.scale(loss).backward()
+            gscaler.step(optimizer)
+            gscaler.update()
+        else:
+            loss.backward()  # Backward pass
+            optimizer.step()  # Update parameters
         scheduler.step()
 
     if dist.is_initialized():
@@ -188,6 +198,8 @@ def train_model(
     iterations_per_epoch=-1,
     epoch_init=0,
     loss_init=np.inf,
+    use_amp=False,
+    run=None,
 ):
 
     checkpoint_name = get_checkpoint_name(save_tag)
@@ -198,7 +210,10 @@ def train_model(
     }
 
     tracker = {"bestValLoss": loss_init, "bestEpoch": epoch_init}
-
+    if use_amp:
+        gscaler = amp.GradScaler()
+    else:
+        gscaler = None
     for epoch in range(int(epoch_init), num_epochs):
         train_loader.sampler.set_epoch(epoch)
 
@@ -214,6 +229,8 @@ def train_model(
             device,
             use_clip=use_clip,
             iterations_per_epoch=iterations_per_epoch,
+            use_amp=use_amp,
+            gscaler=gscaler,
         )
         val_logs = test_step(
             model,
@@ -249,18 +266,23 @@ def train_model(
                 "Time taken for epoch {} is {} sec".format(epoch, time.time() - start)
             )
 
-            if losses["val_loss"][-1] < tracker["bestValLoss"]:
-                print("replacing best checkpoint ...")
-                tracker["bestValLoss"] = losses["val_loss"][-1]
-                save_checkpoint(
-                    model,
-                    epoch + 1,
-                    optimizer,
-                    losses["val_loss"][-1],
-                    lr_scheduler,
-                    output_dir,
-                    checkpoint_name,
-                )
+            # if losses["val_loss"][-1] < tracker["bestValLoss"]:
+            print("replacing best checkpoint ...")
+            tracker["bestValLoss"] = losses["val_loss"][-1]
+            save_checkpoint(
+                model,
+                epoch + 1,
+                optimizer,
+                losses["val_loss"][-1],
+                lr_scheduler,
+                output_dir,
+                checkpoint_name,
+            )
+            if run is not None:
+                for key in train_logs:
+                    run.log({f"train {key}": train_logs[key]})
+                for key in val_logs:
+                    run.log({f"val {key}": val_logs[key]})
 
         if epoch - tracker["bestEpoch"] > patience:
             print(f"breaking on device: {device}")
@@ -310,7 +332,7 @@ def restore_checkpoint(
     is_main_node=False,
     fine_tune=False,
 ):
-    device = device = "cuda:{}".format(device) if torch.cuda.is_available() else "cpu"
+    device = "cuda:{}".format(device) if torch.cuda.is_available() else "cpu"
     checkpoint = torch.load(
         os.path.join(checkpoint_dir, checkpoint_name),
         map_location=device,
@@ -383,6 +405,7 @@ def run(
     pretrain_tag: str = "pretrain",
     dataset: str = "top",
     path: str = "/pscratch/sd/v/vmikuni/PET/datasets",
+    wandb=False,
     fine_tune: bool = False,
     resuming: bool = False,
     use_pid: bool = False,
@@ -393,6 +416,7 @@ def run(
     batch: int = 64,
     iterations: int = -1,
     epoch: int = 15,
+    use_amp: bool = False,
     b1: float = 0.95,
     b2: float = 0.98,
     lr: float = 5e-4,
@@ -471,8 +495,9 @@ def run(
         model, wd, lr, lr_factor=lr_factor, fine_tune=fine_tune
     )
     optimizer = Lion(param_groups, betas=(b1, b2))
+    train_steps = len(train_loader) if iterations > 0 else iterations
     lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, (len(train_loader) * epoch)
+        optimizer, (train_steps * epoch)
     )
 
     epoch_init = 0
@@ -527,6 +552,31 @@ def run(
         **kwarg,
     )
 
+    if wandb:
+        import wandb
+
+        if is_master_node():
+            mode_wandb = None
+            wandb.login()
+        else:
+            mode_wandb = "disabled"
+
+        run = wandb.init(
+            # Set the project where this run will be logged
+            project="OmniLearn",
+            name=save_tag,
+            mode=mode_wandb,
+            # Track hyperparameters and run metadata
+            config={
+                "learning_rate": lr,
+                "epochs": epoch,
+                "batch size": batch,
+                "mode": mode,
+            },
+        )
+    else:
+        run = None
+
     train_model(
         model,
         train_loader,
@@ -541,6 +591,8 @@ def run(
         iterations_per_epoch=iterations,
         epoch_init=epoch_init,
         loss_init=loss_init,
+        use_amp=use_amp,
+        run=run,
     )
 
     dist.destroy_process_group()
