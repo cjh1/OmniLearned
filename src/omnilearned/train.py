@@ -16,7 +16,7 @@ from omnilearned.utils import (
 )
 import time
 import os
-import torch.cuda.amp as amp
+import torch.amp as amp
 
 
 def train_step(
@@ -65,7 +65,8 @@ def train_step(
             if key in batch
         }
 
-        with amp.autocast(enabled=use_amp):
+        with amp.autocast("cuda:{}".format(device) if torch.cuda.is_available() else "cpu",
+                          enabled=use_amp):
             y_pred, y_perturb, z_pred, v, x_body, z_body = model(X, y, **model_kwargs)
 
             loss = 0
