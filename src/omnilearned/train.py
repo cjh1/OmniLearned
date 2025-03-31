@@ -218,7 +218,10 @@ def train_model(
     else:
         gscaler = None
     for epoch in range(int(epoch_init), num_epochs):
-        train_loader.sampler.set_epoch(epoch)
+        if isinstance(
+            train_loader.sampler, torch.utils.data.distributed.DistributedSampler
+        ):
+            train_loader.sampler.set_epoch(epoch)
 
         start = time.time()
         train_logs = train_step(
@@ -441,7 +444,7 @@ def run(
     num_workers: int = 16,
 ):
 
-    local_rank, rank = ddp_setup()
+    local_rank, rank, size = ddp_setup()
     # set up model
     model = PET2(
         input_dim=4,
@@ -469,7 +472,7 @@ def run(
             "Total params: %.2fM"
             % (sum(p.numel() for p in model.parameters()) / 1000000.0)
         )
-        print(f"Training on device: {d}")
+        print(f"Training on device: {d}, with {size} GPUs")
         print("************")
 
     # load in train data
@@ -481,6 +484,8 @@ def run(
         path=path,
         batch=batch,
         num_workers=num_workers,
+        rank=rank,
+        size=size,
     )
     if rank == 0:
         print("**** Setup ****")
@@ -495,6 +500,8 @@ def run(
         path=path,
         batch=batch,
         num_workers=num_workers,
+        rank=rank,
+        size=size,
     )
 
     param_groups = get_param_groups(

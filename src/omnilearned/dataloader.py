@@ -133,7 +133,6 @@ class HEPDataset(Dataset):
         return len(self.file_indices)
 
     def _get_file(self, file_idx):
-        return h5py.File(self.file_paths[file_idx], "r")
         # Get the file handle from cache; open it if it’s not already open.
         if file_idx not in self._file_cache:
             file_path = self.file_paths[file_idx]
@@ -185,6 +184,8 @@ def load_data(
     use_add=False,
     num_add=4,
     num_workers=16,
+    rank=0,
+    size=1,
 ):
 
     supported_datasets = [
@@ -229,7 +230,7 @@ def load_data(
 
         index_file = dataset_path / "file_index.npy"
         if index_file.is_file():
-            indices = np.load(index_file)
+            indices = np.load(index_file, mmap_mode="r")[rank::size]
             file_indices.extend(
                 (file_idx + index_shift, sample_idx) for file_idx, sample_idx in indices
             )
@@ -247,8 +248,6 @@ def load_data(
                 except Exception as e:
                     print(f"ERROR: File {path} is likely corrupted: {e}")
             np.save(index_file, np.array(file_indices, dtype=np.int32))
-            # with open(os.path.join(dataset_path, "file_index.json"), "w") as f:
-            #     json.dump(file_indices, f)
 
     # Shift labels if they are not used for pretrain
     label_shift = {"jetclass": 2, "aspen": 12, "jetclass2": 13}
@@ -267,11 +266,13 @@ def load_data(
         data,
         batch_size=batch,
         pin_memory=torch.cuda.is_available(),
-        sampler=(
-            DistributedSampler(data, shuffle=dataset_type == "train")
-            if distributed
-            else None
-        ),
+        shuffle=dataset_type == "train",
+        sampler=None,
+        # sampler=(
+        #     DistributedSampler(data, shuffle=dataset_type == "train")
+        #     if distributed
+        #     else None
+        # ),
         num_workers=num_workers,
         drop_last=True,
         collate_fn=collate_point_cloud,

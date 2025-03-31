@@ -177,4 +177,4 @@ def ddp_setup():
         torch.cuda.set_device(local_rank)
         torch.backends.cudnn.benchmark = True
 
-    return local_rank, rank
+    return local_rank, rank, dist.get_world_size()
