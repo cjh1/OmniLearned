@@ -31,46 +31,34 @@ def collate_point_cloud(batch):
             - "y": (B, num_classes)
             - "cond", "pid", "add_info" (optional, shape (B, M, ...))
     """
-    # Extract fields from batch
     batch_X = [item["X"] for item in batch]
     batch_y = [item["y"] for item in batch]
 
-    # Optional fields
-    batch_c = [item["cond"] for item in batch if "cond" in item]
-    batch_pid = [item["pid"] for item in batch if "pid" in item]
+    # Stack once to avoid repeated slicing
+    point_clouds = torch.stack(batch_X)  # (B, N, F)
+    labels = torch.stack(batch_y)        # (B, num_classes)
 
-    batch_add_info = [item["add_info"] for item in batch if "add_info" in item]
+    # Use validity mask based on feature index 2
+    valid_mask = point_clouds[:, :, 2] != 0
+    max_particles = valid_mask.sum(dim=1).max().item()
 
-    # Stack point clouds and labels
-    point_clouds = torch.stack(batch_X)  # Shape: (B, N, F)
-    labels = torch.stack(batch_y)  # Shape: (B, num_classes)
-
-    # Determine valid particles (assuming last feature determines validity)
-    valid_mask = point_clouds[:, :, 2] != 0  # Shape: (B, N)
-    valid_counts = valid_mask.sum(dim=1)  # Number of valid particles per batch
-    max_particles = valid_counts.max().item()  # M: max valid points across batch
-
-    # Truncate point clouds to first `max_particles`
-    truncated_X = point_clouds[:, :max_particles, :]  # Shape: (B, M, F)
-
-    # Handle optional fields
+    # Truncate point clouds
+    truncated_X = point_clouds[:, :max_particles, :]  # (B, M, F)
     result = {"X": truncated_X, "y": labels}
 
-    if batch_c:
-        result["cond"] = torch.stack(batch_c)
-    else:
-        result["cond"] = None
-    if batch_pid:
-        result["pid"] = torch.stack(batch_pid)[:, :max_particles]
-    else:
-        result["pid"] = None
-    if batch_add_info:
-        result["add_info"] = torch.stack(batch_add_info)[:, :max_particles]
-    else:
-        result["add_info"] = None
+    # Handle optional fields in a loop to reduce code duplication
+    optional_fields = ["cond", "pid", "add_info"]
+    for field in optional_fields:
+        if all(field in item for item in batch):
+            stacked = torch.stack([item[field] for item in batch])
+            # Truncate if it's sequence-like (i.e., has 2 or more dims)
+            if stacked.dim() >= 2 and stacked.shape[1] >= max_particles:
+                stacked = stacked[:, :max_particles]
+            result[field] = stacked
+        else:
+            result[field] = None
 
     return result
-
 
 def get_url(dataset_name, dataset_type, base_url="https://portal.nersc.gov/cfs/m4567/"):
 
@@ -144,6 +132,7 @@ class HEPDataset(Dataset):
         return len(self.file_indices)
 
     def _get_file(self, file_idx):
+        return h5py.File(self.file_paths[file_idx], "r")
         # Get the file handle from cache; open it if it’s not already open.
         if file_idx not in self._file_cache:
             file_path = self.file_paths[file_idx]
