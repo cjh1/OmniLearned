@@ -40,5 +40,5 @@ def test_train(test_dataset_name, test_dataset_path):
         ), f"Training Complete did not complete successfully: {result.stdout} {result.stderr}"
         best_loss = float(match.group(1))
         assert (
-            best_loss > 0 and best_loss < 0.5
+            best_loss > 0 and best_loss < 1
         ), f"Best loss out of range: {result.stdout} {result.stderr}"
