@@ -65,8 +65,10 @@ def train_step(
             if key in batch
         }
 
-        with amp.autocast("cuda:{}".format(device) if torch.cuda.is_available() else "cpu",
-                          enabled=use_amp):
+        with amp.autocast(
+            "cuda:{}".format(device) if torch.cuda.is_available() else "cpu",
+            enabled=use_amp,
+        ):
             y_pred, y_perturb, z_pred, v, x_body, z_body = model(X, y, **model_kwargs)
 
             loss = 0
@@ -285,9 +287,9 @@ def train_model(
                 for key in val_logs:
                     run.log({f"val {key}": val_logs[key]})
 
-        if epoch - tracker["bestEpoch"] > patience:
-            print(f"breaking on device: {device}")
-            break
+        # if epoch - tracker["bestEpoch"] > patience:
+        #     print(f"breaking on device: {device}")
+        #     break
 
     if is_master_node():
         print(
@@ -358,6 +360,9 @@ def restore_checkpoint(
         startEpoch = checkpoint["epoch"] + 1
         best_loss = checkpoint["loss"]
     else:
+        # for param in base_model.body.parameters():
+        #     param.requires_grad = False
+
         if base_model.classifier is not None and "classifier_head" in checkpoint:
             classifier_state = checkpoint["classifier_head"]
             model_state = base_model.classifier.state_dict()
@@ -496,7 +501,7 @@ def run(
         model, wd, lr, lr_factor=lr_factor, fine_tune=fine_tune
     )
     optimizer = Lion(param_groups, betas=(b1, b2))
-    train_steps = len(train_loader) if iterations > 0 else iterations
+    train_steps = len(train_loader) if iterations < 0 else iterations
     lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, (train_steps * epoch)
     )

@@ -36,7 +36,7 @@ def collate_point_cloud(batch):
 
     # Stack once to avoid repeated slicing
     point_clouds = torch.stack(batch_X)  # (B, N, F)
-    labels = torch.stack(batch_y)        # (B, num_classes)
+    labels = torch.stack(batch_y)  # (B, num_classes)
 
     # Use validity mask based on feature index 2
     valid_mask = point_clouds[:, :, 2] != 0
@@ -59,6 +59,7 @@ def collate_point_cloud(batch):
             result[field] = None
 
     return result
+
 
 def get_url(dataset_name, dataset_type, base_url="https://portal.nersc.gov/cfs/m4567/"):
 
