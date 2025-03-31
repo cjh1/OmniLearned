@@ -2,9 +2,6 @@ import torch
 import h5py
 from argparse import ArgumentParser
 from torch.utils.data import Dataset, DataLoader
-from torch.utils.data.distributed import (
-    DistributedSampler,
-)  # Distribute data across multiple gpus
 import requests
 import re
 import os
